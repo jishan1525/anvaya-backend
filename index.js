@@ -34,6 +34,10 @@ const VALID_SOURCES = [
   "Other",
 ];
 
+app.get("/", (req, res) => {
+  res.send("Backend for Anvaya is running!");
+});
+
 // 1. Create a New Lead
 
 app.post("/leads", async (req, res) => {
@@ -329,21 +333,3 @@ app.listen(PORT, () => {
   console.log(`Server is running on ${PORT}`);
 });
 
-
-// {
-//         "id": "690f7e78e7b16976ccf80587",
-//         "name": "Acme Corp",
-//         "source": "Other",
-//         "salesAgent": 
-//             "id": "690f62f9747d62f657f4eb6b",
-// 
-//         },
-//         "status": "Closed",
-//         "tags": [
-//             "High Value",
-//             "Follow-up"
-//         ],
-//         "timeToClose": 30,
-//         "priority": "High",
-//        
-//     },
