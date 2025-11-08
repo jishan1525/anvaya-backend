@@ -171,8 +171,8 @@ app.get("/leads", async (req, res) => {
     //Send success response
     res.status(200).json(formattedLeads);
   } catch (error) {
-    console.error("Error fetching leads:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error fetching leads:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
