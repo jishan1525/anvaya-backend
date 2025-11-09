@@ -1,9 +1,11 @@
 const { intializeDatabase } = require("./db/db.connect");
 const Lead = require("./models/lead.models");
+const Comment = require("./models/comment.models");
 const cors = require("cors");
 const express = require("express");
 const SalesAgent = require("./models/salesAgent.models");
 const mongoose = require("mongoose");
+const { Int32 } = require("mongodb");
 
 const app = express();
 app.use(express.json());
@@ -42,8 +44,16 @@ app.get("/", (req, res) => {
 
 app.post("/leads", async (req, res) => {
   try {
-    const { name, source, salesAgent, status, tags, timeToClose, priority } =
-      req.body;
+    const {
+      name,
+      source,
+      salesAgent,
+      status,
+      tags,
+      timeToClose,
+      priority,
+      closedAt,
+    } = req.body;
 
     if (typeof name !== "string" || !name.trim()) {
       return res
@@ -69,6 +79,7 @@ app.post("/leads", async (req, res) => {
       tags,
       timeToClose,
       priority,
+      closedAt,
     });
 
     const savedLead = await lead.save();
@@ -90,6 +101,7 @@ app.post("/leads", async (req, res) => {
       tags: populatedLead.tags,
       timeToClose: populatedLead.timeToClose,
       priority: populatedLead.priority,
+      closedAt: populatedLead.closedAt ? populatedLead.closedAt : null,
       createdAt: populatedLead.createdAt,
       updatedAt: populatedLead.updatedAt,
     });
@@ -139,7 +151,7 @@ app.get("/leads", async (req, res) => {
     if (salesAgent) filter.salesAgent = salesAgent;
     if (status) filter.status = status;
     if (source) filter.source = source;
-    ///user call -> leads?status=New&source=Referral then the { status: "New", source: "Referral" }
+    ///user call -> leads?status=New&source=Referral then the filter { status: "New", source: "Referral" }
     // If multiple tags are sent as comma-separated values spliting them into an array
     if (tags) {
       const tagList = Array.isArray(tags) ? tags : tags.split(",");
@@ -244,9 +256,7 @@ app.delete("/leads/:id", async (req, res) => {
   try {
     const leadData = await Lead.findById(id);
     if (!leadData) {
-      return res
-        .status(404)
-        .json({ error: `Lead with ID '${id}' not found.` });
+      return res.status(404).json({ error: `Lead with ID '${id}' not found.` });
     }
 
     //  Delete the lead
@@ -283,7 +293,7 @@ app.post("/agents", async (req, res) => {
       indexOfAt === -1 || // @ not found
       indexOfDot === -1 || // . not found
       indexOfAt > indexOfDot || // dot appears before '@'
-      indexOfAt === 0 || // '@' cannot be first character
+      indexOfAt === 0 || // '@' cannot be first character @expample.com
       indexOfDot === email.length - 1 // . cannot be last character
     ) {
       return res.status(400).json({
@@ -328,8 +338,129 @@ app.get("/agents", async (req, res) => {
   }
 });
 
+//comments API
+
+// 1. Add a Comment to a Lead
+
+app.post("/leads/:id/comments", async (req, res) => {
+  try {
+    const { id: leadId } = req.params;
+    const { comment, author } = req.body;
+
+    // Validate Lead ID
+    if (!leadId || !mongoose.Types.ObjectId.isValid(leadId)) {
+      return res.status(400).json({ error: `Invalid Lead ID '${leadId}'` });
+    }
+
+    // Check if lead exists
+    const lead = await Lead.findById(leadId);
+    if (!lead) {
+      return res
+        .status(404)
+        .json({ error: `Lead with ID '${leadId}' not found.` });
+    }
+
+    // Validate comment text
+    if (!comment || typeof comment !== "string" || !comment.trim()) {
+      return res
+        .status(400)
+        .json({ error: "Invalid input: 'comment' is required." });
+    }
+
+    // Create and save new comment
+    const newComment = new Comment({
+      lead: leadId,
+      author: author,
+      commentText: comment,
+    });
+
+    const savedComment = await newComment.save();
+
+    // Send success response
+    res.status(201).json({
+      id: savedComment._id,
+      commentText: savedComment.commentText,
+      author: savedComment.author,
+      createdAt: savedComment.createdAt,
+    });
+  } catch (error) {
+    console.error("Error adding comment:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 2. find all comment by lead id
+
+app.get("/leads/:id/comments", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: "Invalid Lead ID." });
+  }
+  const comments = await Comment.find({ lead: id })
+    .populate("author", "name") // fetches author name only
+    .select("commentText author createdAt");
+
+  if (!comments.length) {
+    return res.status(404).json({ error: "No comments found." });
+  }
+  //problem -> we are giving the sales agent id as params and in response we need sales person name in response
+  // if the would have been just one single comment then we could have used the findById method to find the name but the case is different, we can have different comments from different sales agent so we need to iterate over the allComments and also need to check and assign the name as required
+  // format response so only name is shown, not id
+  const formattedComments = comments.map((c) => ({
+    id: id,
+    commentText: c.commentText,
+    authorName: c.author?.name ? c.author?.name : "Unknown",
+    createdAt: c.createdAt,
+  }));
+
+  res.status(200).json(formattedComments);
+});
+
+//Reporting API
+// 1. Get Leads Closed Last Week
+
+app.get("/report/last-week", async (req, res) => {
+  try {
+    const today = new Date();
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(today.getDate() - 7);
+
+    //leads closed within the last 7 days
+    const recentClosedLeads = await Lead.find({
+      status: "Closed",
+      closedAt: { $gte: sevenDaysAgo, $lte: today }, //$gte and $lte → MongoDB operators for “greater than or equal to” and “less than or equal to”
+    });
+
+    res.status(200).json({
+      message: "Leads closed in the last 7 days",
+      data: recentClosedLeads,
+    });
+  } catch (error) {
+    console.error("Error fetching report:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+//2. leads in pipeLine
+
+app.get("/report/pipeline", async (req, res) => {
+  try {
+    const allLeadsCount = (await Lead.find()).length;
+    const leadsClosed = (await Lead.find({ status: "Closed" })).length;
+    if (allLeadsCount - leadsClosed <= 0) {
+      return res
+        .status(404)
+        .json({ message: "No leads in pipeline." });
+    } else {
+      return res.status(201).json({ "totalLeadsxtotalLeadsInPipeline": allLeadsCount - leadsClosed });
+    }
+  } catch (error) {
+    console.error("Error fetching report:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on ${PORT}`);
 });
-
