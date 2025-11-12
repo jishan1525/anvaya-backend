@@ -188,6 +188,27 @@ app.get("/leads", async (req, res) => {
   }
 });
 
+//Extra additon -> get lead by lead
+
+app.get("/leads/:id",async(req, res)=> {
+  try {
+    const {id} = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid Lead ID format." });
+    }
+    const lead =await Lead.findById(id);
+    if (!lead) {
+        return res
+          .status(404)
+          .json({ error: `Lead with ID '${id}' not found.` });
+      }
+      res.status(200).json(lead);
+  } catch (error) {
+    console.error("Error updating lead:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+})
+
 //3. Update Lead
 app.put("/leads/:id", async (req, res) => {
   try {
@@ -403,8 +424,7 @@ app.get("/leads/:id/comments", async (req, res) => {
   if (!comments.length) {
     return res.status(404).json({ error: "No comments found." });
   }
-  //problem -> we are giving the sales agent id as params and in response we need sales person name in response
-  // if the would have been just one single comment then we could have used the findById method to find the name but the case is different, we can have different comments from different sales agent so we need to iterate over the allComments and also need to check and assign the name as required
+  //problem -> we are giving the sales agent id as params and in response we need sales person name in response if the would have been just one single comment then we could have used the findById method to find the name but the case is different, we can have different comments from different sales agent so we need to iterate over the allComments and also need to check and assign the name as required
   // format response so only name is shown, not id
   const formattedComments = comments.map((c) => ({
     id: id,
